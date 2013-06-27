@@ -10,34 +10,33 @@ class MethodCallProcessor {
                 }
             };
 
-
-    void methodEnter(long threadId, long methodId) {
-        TracerControl tracerControl = TracerControlSingleton.D.getInstance();
-
-        MethodInfo methodInfo = tracerControl.getMethodInfo(methodId);
+    void methodEnter(MethodInfo methodInfo) {
 
         if(methodInfo.isTraced()) {
             System.out.println(String.format("[T][%6d] %s",
-                    threadId, methodInfo.getMethodName()));
+                    Thread.currentThread().getId(), methodInfo.getMethodName()));
 
             MethodCallMarker[] stack = callStack.get().toArray();
 
             for(int i = stack.length - 1; i >= 0; --i) {
                 System.out.println(String.format("      %5d %s", i,
-                        tracerControl.getMethodInfo(stack[i].methodId).getMethodName()));
+                        stack[i].methodInfo.getMethodName()));
             }
             System.out.println();
         }
 
         methodInfo.incrementCallCount();
-        callStack.get().push(methodId);
+        callStack.get().push(methodInfo);
     }
 
-    void methodExit(long threadId, long methodId) {
-        TracerControl tracerControl = TracerControlSingleton.D.getInstance();
-
+    void methodExit(MethodInfo methodInfo) {
         MethodCallMarker marker = callStack.get().pop();
-        tracerControl.getMethodInfo(marker.methodId).updateStats(marker);
+        marker.methodInfo.updateStats(marker);
+    }
+
+    void methodExit() {
+        MethodCallMarker marker = callStack.get().pop();
+        marker.methodInfo.updateStats(marker);
     }
 
 }

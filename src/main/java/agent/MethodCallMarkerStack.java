@@ -7,10 +7,10 @@ public class MethodCallMarkerStack {
     private int sp = -1;
     private final Vector<MethodCallMarker> stack = new Vector<>(1024, 256);
 
-    void push(long methodId) {
+    void push(MethodInfo methodInfo) {
         if(++sp > maxElement) { stack.add(++maxElement,new MethodCallMarker()); }
         MethodCallMarker m = stack.get(sp);
-        m.methodId = methodId;
+        m.methodInfo = methodInfo;
         m.startTime = System.nanoTime();
     }
 

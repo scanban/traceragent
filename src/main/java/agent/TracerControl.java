@@ -24,7 +24,7 @@ class TracerControl {
     private int debugLevel;
     private final Map<Long, MethodInfo> methods = new ConcurrentHashMap<>();
     private final AtomicLong methodIdSeq = new AtomicLong(0);
-    private final MethodCallProcessor statsHolder = new MethodCallProcessor();
+    private final MethodCallProcessor methodCallProcessor = new MethodCallProcessor();
 
     void init(String argString) {
         String args[] = argString.split("#");
@@ -51,18 +51,15 @@ class TracerControl {
     }
 
     boolean allowInstrumentClass(String className) {
-        if(packagePattern == null) { return false; }
-        return packagePattern.matcher(className).matches();
+        return packagePattern != null && packagePattern.matcher(className).matches();
     }
 
     boolean allowInstrumentMethod(String methodName) {
-        if(packagePattern == null) { return false; }
-        return packagePattern.matcher(methodName).find();
+        return packagePattern != null && packagePattern.matcher(methodName).find();
     }
 
     boolean allowTraceMethod(String methodName) {
-        if(tracedPattern == null) { return false; }
-        return tracedPattern.matcher(methodName).find();
+        return tracedPattern != null && tracedPattern.matcher(methodName).find();
     }
 
 
@@ -77,20 +74,16 @@ class TracerControl {
         return debugLevel;
     }
 
-    void methodEnter(Long id) {
+    void methodEnter(MethodInfo methodInfo) {
         if(debugLevel >= 2) {
             debug(2, "entering method [" + Thread.currentThread().getId() + "]: " +
-                    methods.get(id).getMethodName());
+                    methodInfo.getMethodName());
         }
-        statsHolder.methodEnter(Thread.currentThread().getId(), id);
+        methodCallProcessor.methodEnter(methodInfo);
     }
 
-    void methodExit(Long id) {
-        if(debugLevel >= 2) {
-            debug(2, "leaving method: ["  + Thread.currentThread().getId() + "]: " +
-                    methods.get(id).getMethodName());
-        }
-        statsHolder.methodExit(Thread.currentThread().getId(), id);
+    void methodExit() {
+        methodCallProcessor.methodExit();
     }
 
     void debug(int level, String message) {
