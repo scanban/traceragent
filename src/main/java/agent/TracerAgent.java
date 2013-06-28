@@ -10,6 +10,10 @@ import java.security.ProtectionDomain;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class TracerAgent implements ClassFileTransformer {
+    private static final String AGENT_PACKAGE  = TracerAgent.class.getPackage().getName();
+    private static final String GENERATED_PACKAGE = AGENT_PACKAGE + "." + "s";
+
+
     private static TracerControl tracerControl;
     private final AtomicLong classIdSeq = new AtomicLong(0);
 
@@ -57,13 +61,15 @@ public class TracerAgent implements ClassFileTransformer {
         debug(1, "Instrumenting method: " +  method.getLongName());
         String fieldName = "m" + methodId;
 
-        CtField callTarget = CtField.make("public static agent.MethodInfo " +
-                fieldName + " = agent.TracerAgent.getMethodInfo(" + methodId + "L);", shadowClass);
+        CtField callTarget = CtField.make("public static " + AGENT_PACKAGE + ".MethodInfo " +
+                fieldName + "=" + AGENT_PACKAGE +
+                ".TracerAgent.getMethodInfo(" + methodId + "L);", shadowClass);
 
         shadowClass.addField(callTarget);
 
-        method.insertBefore("agent.TracerAgent.methodEnter(" + shadowClassName  + "." + fieldName + ");");
-        method.insertAfter("agent.TracerAgent.methodExit();");
+        method.insertBefore(AGENT_PACKAGE + ".TracerAgent.methodEnter(" +
+                shadowClassName  + "." + fieldName + ");");
+        method.insertAfter(AGENT_PACKAGE + ".TracerAgent.methodExit();");
     }
 
     private void instrumentConstructor(CtConstructor constructor, long methodId, CtClass shadowClass,
@@ -73,13 +79,15 @@ public class TracerAgent implements ClassFileTransformer {
         debug(1, "Instrumenting constructor: " +  constructor.getLongName());
         String fieldName = "m" + methodId;
 
-        CtField callTarget = CtField.make("public static agent.MethodInfo " +
-                fieldName + " = agent.TracerAgent.getMethodInfo(" + methodId + "L);", shadowClass);
+        CtField callTarget = CtField.make("public static "+ AGENT_PACKAGE + ".MethodInfo " +
+                fieldName + "=" + AGENT_PACKAGE +
+                ".TracerAgent.getMethodInfo(" + methodId + "L);", shadowClass);
 
         shadowClass.addField(callTarget);
 
-        constructor.insertBefore("agent.TracerAgent.methodEnter(" + shadowClassName  + "." + fieldName + ");");
-        constructor.insertAfter("agent.TracerAgent.methodExit();");
+        constructor.insertBefore(AGENT_PACKAGE + ".TracerAgent.methodEnter(" +
+                shadowClassName  + "." + fieldName + ");");
+        constructor.insertAfter(AGENT_PACKAGE + ".TracerAgent.methodExit();");
     }
 
 
@@ -92,7 +100,7 @@ public class TracerAgent implements ClassFileTransformer {
         ClassPool pool = classPool.get();
         CtClass iclass = null;
 
-        String shadowClassName = "agent.s.c" + classIdSeq.incrementAndGet();
+        String shadowClassName = GENERATED_PACKAGE + ".c" + classIdSeq.incrementAndGet();
         CtClass shadowClass = pool.makeClass(shadowClassName);
 
         debug(1, "Instrumenting class: " + className + ", shadow: " + shadowClassName);
