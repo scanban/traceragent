@@ -20,6 +20,8 @@ public class TracerAgent implements ClassFileTransformer {
     private Pattern packagePattern;
     private Pattern tracedPattern;
     private int debugLevel;
+    private volatile int flushInterval;
+
     private static final Map<Long, MethodInfo> methodsInfo = new ConcurrentHashMap<>();
     private static final MethodCallProcessor methodCallProcessor = new MethodCallProcessor();
 
@@ -43,9 +45,27 @@ public class TracerAgent implements ClassFileTransformer {
         Runtime.getRuntime().addShutdownHook(new Thread(){
             @Override
             public void run() {
+                flushInterval = 0;
                 printStats();
             }
         });
+
+        if(flushInterval != 0) {
+            Thread t = new Thread("Agent statistics flush") {
+                @Override
+                public void run() {
+                    while (true) {
+                        try {
+                            Thread.sleep(flushInterval * 1000);
+                            if(flushInterval <= 0) { return; }
+                            printStats();
+                        } catch (InterruptedException e) {  return; }
+                    }
+                }
+            };
+            t.setDaemon(true);
+            t.start();
+        }
     }
 
     public static void premain(String args, Instrumentation instrumentation) {
@@ -83,7 +103,7 @@ public class TracerAgent implements ClassFileTransformer {
 
         method.insertBefore(AGENT_PACKAGE + ".TracerAgent.methodEnter(" +
                 shadowClassName  + "." + fieldName + ");");
-        method.insertAfter(AGENT_PACKAGE + ".TracerAgent.methodExit();");
+        method.insertAfter(AGENT_PACKAGE + ".TracerAgent.methodExit();", true);
     }
 
     private void instrumentConstructor(CtConstructor constructor, long methodId, CtClass shadowClass,
@@ -101,12 +121,12 @@ public class TracerAgent implements ClassFileTransformer {
 
         constructor.insertBefore(AGENT_PACKAGE + ".TracerAgent.methodEnter(" +
                 shadowClassName  + "." + fieldName + ");");
-        constructor.insertAfter(AGENT_PACKAGE + ".TracerAgent.methodExit();");
+        constructor.insertAfter(AGENT_PACKAGE + ".TracerAgent.methodExit();", true);
     }
 
 
     private byte[] instrumentClass(ClassLoader loader, ProtectionDomain domain, String className,
-                                   byte[] classfileBuffer) throws NotFoundException {
+                                   byte[] classfileBuffer) {
         ClassPool pool = classPool.get();
         CtClass modclass = null;
 
@@ -160,15 +180,8 @@ public class TracerAgent implements ClassFileTransformer {
                             byte[] classfileBuffer) throws IllegalClassFormatException {
         String translatedName = className.replace("/", ".");
 
-        //debug(1, "trans: " + translatedName);
-
         if(allowInstrumentClass(translatedName)) {
-            try {
-                return instrumentClass(loader, protectionDomain, translatedName, classfileBuffer);
-            } catch (NotFoundException e) {
-                e.printStackTrace();
-                return null;
-            }
+            return instrumentClass(loader, protectionDomain, translatedName, classfileBuffer);
         }
 
         return null;
@@ -199,16 +212,18 @@ public class TracerAgent implements ClassFileTransformer {
 
     private void debug(int level, String message) {
         if(debugLevel >= level) {
-            System.out.println(message);
+            System.out.println("[AGENT - DEBUG] " + message);
         }
     }
 
     void printStats() {
         PerformanceReport pr = new PerformanceReport(methodsInfo.values());
 
+        System.out.println("\n[AGENT+] *** performance report ***");
         pr.reportTopTimeConsumed(10);
         pr.reportTopCalled(10);
         pr.reportTopConstructed(10);
+        System.out.println("\n[AGENT-] *** end of performance report ***");
     }
 
 
@@ -232,6 +247,11 @@ public class TracerAgent implements ClassFileTransformer {
                 case "d":
                     debugLevel = Integer.parseInt(kv[1]);
                     System.out.println("debug level:[" + debugLevel + "]");
+                    break;
+                case "i":
+                    flushInterval = Integer.parseInt(kv[1]);
+                    System.out.println("statistics flush interval:[" + flushInterval + "]");
+                    break;
             }
         }
     }
