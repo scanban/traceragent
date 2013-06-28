@@ -46,7 +46,7 @@ public class TracerAgent implements ClassFileTransformer {
             @Override
             public void run() {
                 flushInterval = 0;
-                printStats();
+                printStats(10);
             }
         });
 
@@ -58,7 +58,7 @@ public class TracerAgent implements ClassFileTransformer {
                         try {
                             Thread.sleep(flushInterval * 1000);
                             if(flushInterval <= 0) { return; }
-                            printStats();
+                            printStats(5);
                         } catch (InterruptedException e) {  return; }
                     }
                 }
@@ -216,13 +216,13 @@ public class TracerAgent implements ClassFileTransformer {
         }
     }
 
-    void printStats() {
+    private synchronized void printStats(int topCount) {
         PerformanceReport pr = new PerformanceReport(methodsInfo.values());
 
         System.out.println("\n[AGENT+] *** performance report ***");
-        pr.reportTopTimeConsumed(10);
-        pr.reportTopCalled(10);
-        pr.reportTopConstructed(10);
+        pr.reportTopTimeConsumed(topCount);
+        pr.reportTopCalled(topCount);
+        pr.reportTopConstructed(topCount);
         System.out.println("\n[AGENT-] *** end of performance report ***");
     }
 

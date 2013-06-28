@@ -2,7 +2,7 @@ package agent;
 
 import java.util.Vector;
 
-public class MethodCallMarkerStack {
+class MethodCallMarkerStack {
     private int maxElement = -1;
     private int sp = -1;
     private final Vector<MethodCallMarker> stack = new Vector<>(1024, 256);
