@@ -1,22 +1,31 @@
 package agent;
 
 import javassist.*;
+import reports.PerformanceReport;
 
 import java.io.ByteArrayInputStream;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
 import java.lang.instrument.Instrumentation;
 import java.security.ProtectionDomain;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 
 public class TracerAgent implements ClassFileTransformer {
     private static final String AGENT_PACKAGE  = TracerAgent.class.getPackage().getName();
     private static final String GENERATED_PACKAGE = AGENT_PACKAGE + "." + "s";
 
+    private Pattern packagePattern;
+    private Pattern tracedPattern;
+    private int debugLevel;
+    private static final Map<Long, MethodInfo> methodsInfo = new ConcurrentHashMap<>();
+    private static final MethodCallProcessor methodCallProcessor = new MethodCallProcessor();
 
-    private static TracerControl tracerControl;
+
+    private final AtomicLong methodIdSeq = new AtomicLong(0);
     private final AtomicLong classIdSeq = new AtomicLong(0);
-
 
     private static final ThreadLocal<ClassPool> classPool = new ThreadLocal<ClassPool> () {
         @Override
@@ -25,35 +34,40 @@ public class TracerAgent implements ClassFileTransformer {
         }
     };
 
+    //
+    //
+
+    private TracerAgent(String args) {
+        init(args);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(){
+            @Override
+            public void run() {
+                printStats();
+            }
+        });
+    }
 
     public static void premain(String args, Instrumentation instrumentation) {
 
         instrumentation.addTransformer(new TracerAgent(args), false);
     }
 
+    @SuppressWarnings("unused")
     public static void methodEnter(MethodInfo methodInfo) {
-        tracerControl.methodEnter(methodInfo);
+        methodCallProcessor.methodEnter(methodInfo);
     }
 
+    @SuppressWarnings("unused")
     public static void methodExit() {
-        tracerControl.methodExit();
+        methodCallProcessor.methodExit();
     }
 
-    public static MethodInfo getMethodInfo(long methodId) {
-        return TracerControlSingleton.D.getInstance().getMethodInfo(methodId);
-    }
+    @SuppressWarnings("unused")
+    public static MethodInfo getMethodInfo(long id) { return methodsInfo.get(id); }
 
-    private TracerAgent(String args) {
-        tracerControl = TracerControlSingleton.D.getInstance();
-        tracerControl.init(args);
-
-        Runtime.getRuntime().addShutdownHook(new Thread(){
-            @Override
-            public void run() {
-                TracerControlSingleton.D.getInstance().printStats();
-            }
-        });
-    }
+    //
+    //
 
     private void instrumentMethod(CtMethod method, long methodId, CtClass shadowClass,
                                   String shadowClassName)
@@ -91,14 +105,10 @@ public class TracerAgent implements ClassFileTransformer {
     }
 
 
-    private static void debug(int level, String message) {
-        tracerControl.debug(level, message);
-    }
-
     private byte[] instrumentClass(ClassLoader loader, ProtectionDomain domain, String className,
                                    byte[] classfileBuffer) throws NotFoundException {
         ClassPool pool = classPool.get();
-        CtClass iclass = null;
+        CtClass modclass = null;
 
         String shadowClassName = GENERATED_PACKAGE + ".c" + classIdSeq.incrementAndGet();
         CtClass shadowClass = pool.makeClass(shadowClassName);
@@ -106,41 +116,38 @@ public class TracerAgent implements ClassFileTransformer {
         debug(1, "Instrumenting class: " + className + ", shadow: " + shadowClassName);
 
         try {
-            iclass = pool.makeClass(new ByteArrayInputStream(classfileBuffer));
-            if(!iclass.isInterface()) {
-                for(CtMethod m: iclass.getMethods()) {
+            modclass = pool.makeClass(new ByteArrayInputStream(classfileBuffer));
+            if(!modclass.isInterface()) {
+                for(CtMethod m: modclass.getMethods()) {
                     String mName = m.getLongName();
-                    if(tracerControl.allowInstrumentMethod(mName) && !m.isEmpty() &&
+                    if(allowInstrumentMethod(mName) && !m.isEmpty() &&
                             (m.getModifiers() & Modifier.NATIVE) == 0) {
                         int flags = 0;
-                        if(tracerControl.allowTraceMethod(mName)) { flags |= MethodInfo.MF_TRACEDCALL; }
-                        instrumentMethod(m,
-                                tracerControl.registerMethod(new
-                                        MethodInfo(className, mName, flags)),
+                        if(allowTraceMethod(mName)) { flags |= MethodInfo.MF_TRACEDCALL; }
+                        instrumentMethod(m, registerMethod(new MethodInfo(className, mName, flags)),
                                 shadowClass, shadowClassName);
                     }
                 }
 
-                for(CtConstructor c: iclass.getConstructors()) {
+                for(CtConstructor c: modclass.getConstructors()) {
                     String cName = c.getLongName();
                     if((c.getModifiers() & Modifier.NATIVE) == 0) {
                         int flags = MethodInfo.MF_CONSTRUCTOR;
-                        if(tracerControl.allowTraceMethod(cName)) { flags |= MethodInfo.MF_TRACEDCALL; }
-                        instrumentConstructor(c, tracerControl.registerMethod(new
-                                MethodInfo(className, cName, flags)),
+                        if(allowTraceMethod(cName)) { flags |= MethodInfo.MF_TRACEDCALL; }
+                        instrumentConstructor(c, registerMethod(new MethodInfo(className, cName, flags)),
                                 shadowClass, shadowClassName);
                     }
                 }
             }
 
             pool.toClass(shadowClass, loader, domain);
-            return iclass.toBytecode();
+            return modclass.toBytecode();
         } catch (Exception e) {
             System.err.println("Exception caught during class " + className +
                     " instrumentation");
             e.printStackTrace();
         } finally {
-            if(iclass != null) { iclass.detach(); }
+            if(modclass != null) { modclass.detach(); }
             if(shadowClass != null) { shadowClass.detach(); }
         }
 
@@ -155,7 +162,7 @@ public class TracerAgent implements ClassFileTransformer {
 
         //debug(1, "trans: " + translatedName);
 
-        if(tracerControl.allowInstrumentClass(translatedName)) {
+        if(allowInstrumentClass(translatedName)) {
             try {
                 return instrumentClass(loader, protectionDomain, translatedName, classfileBuffer);
             } catch (NotFoundException e) {
@@ -165,5 +172,67 @@ public class TracerAgent implements ClassFileTransformer {
         }
 
         return null;
+    }
+
+    //
+    //
+
+    boolean allowInstrumentClass(String className) {
+        return packagePattern != null && packagePattern.matcher(className).matches();
+    }
+
+    boolean allowInstrumentMethod(String methodName) {
+        return packagePattern != null && packagePattern.matcher(methodName).find();
+    }
+
+    boolean allowTraceMethod(String methodName) {
+        return tracedPattern != null && tracedPattern.matcher(methodName).find();
+    }
+
+
+    long registerMethod(MethodInfo methodInfo) {
+        long rvalue = methodIdSeq.getAndIncrement();
+        methodsInfo.put(rvalue, methodInfo);
+
+        return rvalue;
+    }
+
+    private void debug(int level, String message) {
+        if(debugLevel >= level) {
+            System.out.println(message);
+        }
+    }
+
+    void printStats() {
+        PerformanceReport pr = new PerformanceReport(methodsInfo.values());
+
+        pr.reportTopTimeConsumed(10);
+        pr.reportTopCalled(10);
+        pr.reportTopConstructed(10);
+    }
+
+
+    void init(String argString) {
+        String args[] = argString.split("#");
+
+        System.out.println("running with args:[" + argString + "]");
+
+        for(String arg: args) {
+            String kv[] = arg.split(":");
+            if(kv == null || (kv[0] == null) || (kv[1] == null)) { continue; }
+            switch (kv[0]) {
+                case "p":
+                    packagePattern = Pattern.compile(kv[1]);
+                    System.out.println("package pattern:[" + kv[1] + "]");
+                    break;
+                case "t":
+                    tracedPattern = Pattern.compile(kv[1]);
+                    System.out.println("trace call pattern:[" + kv[1] + "]");
+                    break;
+                case "d":
+                    debugLevel = Integer.parseInt(kv[1]);
+                    System.out.println("debug level:[" + debugLevel + "]");
+            }
+        }
     }
 }

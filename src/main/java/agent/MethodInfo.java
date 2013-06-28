@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class MethodInfo {
     static final int MF_CONSTRUCTOR = 1;
-    static final int MF_TRACEDCALL = 2;
+    static final int MF_TRACEDCALL  = 2;
 
     private final String className;
     private final String methodName;
@@ -20,8 +20,12 @@ public class MethodInfo {
     public boolean isConstructor() { return (flags & MF_CONSTRUCTOR) != 0; }
     public boolean isTraced() { return (flags & MF_TRACEDCALL) != 0; }
 
+    static long getTime() {
+        return System.nanoTime();
+    }
+
     void updateStats(MethodCallMarker marker) {
-        addTime(System.nanoTime() - marker.startTime);
+        addTime(getTime() - marker.startTime);
     }
 
     public MethodInfo(String className, String methodName, int flags) {

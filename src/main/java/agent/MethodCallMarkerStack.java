@@ -8,10 +8,10 @@ public class MethodCallMarkerStack {
     private final Vector<MethodCallMarker> stack = new Vector<>(1024, 256);
 
     void push(MethodInfo methodInfo) {
-        if(++sp > maxElement) { stack.add(++maxElement,new MethodCallMarker()); }
+        if(++sp > maxElement) { stack.add(new MethodCallMarker()); ++maxElement; }
         MethodCallMarker m = stack.get(sp);
         m.methodInfo = methodInfo;
-        m.startTime = System.nanoTime();
+        m.startTime = MethodInfo.getTime();
     }
 
     MethodCallMarker pop() { return stack.get(sp--); }

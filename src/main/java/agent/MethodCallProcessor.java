@@ -29,11 +29,6 @@ class MethodCallProcessor {
         callStack.get().push(methodInfo);
     }
 
-    void methodExit(MethodInfo methodInfo) {
-        MethodCallMarker marker = callStack.get().pop();
-        marker.methodInfo.updateStats(marker);
-    }
-
     void methodExit() {
         MethodCallMarker marker = callStack.get().pop();
         marker.methodInfo.updateStats(marker);
